@@ -63,18 +63,20 @@ def process_pr_review(repo_name: str, pr_number: int):
     review = get_ai_review(diff_text)
     pr.create_issue_comment(f"### 🤖 AI Code Review\n\n{review}")
 
-    with SessionLocal() as session:
-        session.add(
-            Review(
-                repo_name=repo_name,
-                pr_number=pr_number,
-                files_count=files_count,
-                review_text=review,
+    try:
+        with SessionLocal() as session:
+            session.add(
+                Review(
+                    repo_name=repo_name,
+                    pr_number=pr_number,
+                    files_count=files_count,
+                    review_text=review,
+                )
             )
-        )
-        session.commit()
-
-    print("Review posted and saved to database!")
+            session.commit()
+        print("Review posted and saved to database!")
+    except Exception as e:
+        print(f"Review posted, but saving to database failed: {e}")
 
 
 @app.post("/webhook")
