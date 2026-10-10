@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from github import Github, Auth
 from dotenv import load_dotenv
+from db import SessionLocal, Review
 import os
 import json
 import hmac
@@ -48,7 +49,9 @@ def process_pr_review(repo_name: str, pr_number: int):
     pr = repo.get_pull(pr_number)
 
     diff_text = ""
+    files_count = 0
     for file in pr.get_files():
+        files_count += 1
         if file.patch:
             diff_text += f"File: {file.filename}\n{file.patch}\n\n"
 
@@ -59,7 +62,19 @@ def process_pr_review(repo_name: str, pr_number: int):
     print("Sending diff to Gemini...")
     review = get_ai_review(diff_text)
     pr.create_issue_comment(f"### 🤖 AI Code Review\n\n{review}")
-    print("Review posted successfully!")
+
+    with SessionLocal() as session:
+        session.add(
+            Review(
+                repo_name=repo_name,
+                pr_number=pr_number,
+                files_count=files_count,
+                review_text=review,
+            )
+        )
+        session.commit()
+
+    print("Review posted and saved to database!")
 
 
 @app.post("/webhook")

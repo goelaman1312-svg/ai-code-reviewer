@@ -3,3 +3,5 @@ uvicorn
 PyGithub
 python-dotenv
 google-generativeai
+SQLAlchemy
+psycopg[binary]
