@@ -9,6 +9,7 @@ import hashlib
 import google.generativeai as genai
 import time
 from sqlalchemy import func
+from review_graph import make_graph
 
 load_dotenv()
 
@@ -57,19 +58,31 @@ def process_pr_review(repo_name: str, pr_number: int):
     repo = gh.get_repo(repo_name)
     pr = repo.get_pull(pr_number)
 
-    diff_text = ""
-    files_count = 0
-    for file in pr.get_files():
-        files_count += 1
-        if file.patch:
-            diff_text += f"File: {file.filename}\n{file.patch}\n\n"
+    files = []
+    for f in pr.get_files():
+        if f.patch:
+            files.append({"filename": f.filename, "patch": f.patch})
 
-    if not diff_text:
+    if not files:
         pr.create_issue_comment("No reviewable code changes found in this PR.")
         return
 
-    print("Sending diff to Gemini...")
-    review = get_ai_review(diff_text)
+    files_count = len(files)
+    files = files[:8]  # free Gemini limit: review at most 8 files per PR
+
+    print(f"Reviewing {len(files)} file(s) with LangGraph...")
+    try:
+        graph = make_graph(ask_gemini)
+        result = graph.invoke({"files": files, "findings": [], "summary": ""})
+        review = result["summary"]
+    except Exception as e:
+        print(f"Graph failed, falling back to single prompt: {e}")
+        diff_text = "".join(f"File: {x['filename']}\n{x['patch']}\n\n" for x in files)
+        review = get_ai_review(diff_text)
+
+    if files_count > 8:
+        review += f"\n\n_Note: only the first 8 of {files_count} files were reviewed._"
+
     pr.create_issue_comment(f"### 🤖 AI Code Review\n\n{review}")
 
     try:
@@ -86,6 +99,16 @@ def process_pr_review(repo_name: str, pr_number: int):
         print("Review posted and saved to database!")
     except Exception as e:
         print(f"Review posted, but saving to database failed: {e}")
+
+def ask_gemini(prompt: str) -> str:
+    for attempt in range(3):
+        try:
+            return model.generate_content(prompt).text
+        except Exception as e:
+            print(f"Gemini error (try {attempt + 1}/3): {e}")
+            if attempt < 2:
+                time.sleep(40)
+    return "Could not generate this part of the review (AI service rate limited)."
 
 
 @app.post("/webhook")
