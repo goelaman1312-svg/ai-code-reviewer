@@ -7,6 +7,7 @@ import json
 import hmac
 import hashlib
 import google.generativeai as genai
+import time
 
 load_dotenv()
 
@@ -40,8 +41,15 @@ Keep it concise and use bullet points.
 DIFF:
 {diff_text}
 """
-    response = model.generate_content(prompt)
-    return response.text
+    for attempt in range(3):
+        try:
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            print(f"Gemini error (try {attempt + 1}/3): {e}")
+            if attempt < 2:
+                time.sleep(40)
+    return "The review could not be generated right now because the AI service is rate limited. Please open a new PR in a minute."
 
 
 def process_pr_review(repo_name: str, pr_number: int):
