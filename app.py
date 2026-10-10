@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import google.generativeai as genai
 import time
+from sqlalchemy import func
 
 load_dotenv()
 
@@ -105,3 +106,28 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         background_tasks.add_task(process_pr_review, repo_name, pr_number)
 
     return {"status": "ok"}
+
+@app.get("/stats")
+def stats():
+    with SessionLocal() as session:
+        total = session.query(func.count(Review.id)).scalar()
+        files = session.query(func.coalesce(func.sum(Review.files_count), 0)).scalar()
+        latest = (
+            session.query(Review)
+            .order_by(Review.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        return {
+            "total_reviews": total,
+            "total_files_reviewed": int(files),
+            "latest": [
+                {
+                    "repo": r.repo_name,
+                    "pr": r.pr_number,
+                    "files": r.files_count,
+                    "at": r.created_at.isoformat(),
+                }
+                for r in latest
+            ],
+        }
